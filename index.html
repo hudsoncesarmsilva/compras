@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#ffffff">
-<title>Lista de Compras v02</title>
+<title>Lista de Compras v03</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -87,7 +87,7 @@ html,body { height:100%; background:var(--bg); font-family:'Plus Jakarta Sans',s
   <div class="header">
     <div class="header-top">
       <div>
-        <h1>🛒 Lista de Compras <small style="font-size:13px;font-weight:400;color:var(--text3)">v02</small></h1>
+        <h1>🛒 Lista de Compras <small style="font-size:13px;font-weight:400;color:var(--text3)">v03</small></h1>
         <p id="dateLabel"></p>
       </div>
       <div class="header-actions">
@@ -300,10 +300,10 @@ function esc(s) {
 // Função que processa o texto recebido:
 // separa por vírgula OU adiciona sozinho após pausa
 let pauseTimer = null;
-const PAUSA_MS = 1800; // tempo de silêncio para adicionar automaticamente
+const PAUSA_MS = 1800;
+let ultimoIndex = 0; // controla quais resultados já foram processados
 
 function processarFala(texto) {
-  // Se tiver vírgula, separa em múltiplos itens
   if (texto.includes(',')) {
     const partes = texto.split(',').map(p => p.trim()).filter(Boolean);
     partes.forEach(p => addItem(p));
@@ -323,21 +323,27 @@ function setupSpeech() {
   }
   recognition = new SR();
   recognition.lang = 'pt-BR';
-  recognition.continuous = true;   // fica ouvindo continuamente
+  recognition.continuous = true;
   recognition.interimResults = true;
 
   recognition.onresult = ev => {
     let fin='', intr='';
-    for (let i=ev.resultIndex; i<ev.results.length; i++)
-      ev.results[i].isFinal ? fin+=ev.results[i][0].transcript : intr+=ev.results[i][0].transcript;
+    // só processa resultados novos, a partir do último índice registrado
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) {
+        if (i >= ultimoIndex) {
+          fin += ev.results[i][0].transcript;
+          ultimoIndex = i + 1; // marca como processado
+        }
+      } else {
+        intr += ev.results[i][0].transcript;
+      }
+    }
 
-    // Mostra o que está sendo reconhecido
     document.getElementById('liveText').textContent = (fin || intr).trim();
 
     if (fin.trim()) {
       interim += (interim ? ' ' : '') + fin.trim();
-
-      // Reinicia o timer de pausa a cada palavra final recebida
       clearTimeout(pauseTimer);
       pauseTimer = setTimeout(() => {
         if (interim.trim()) {
@@ -350,11 +356,10 @@ function setupSpeech() {
   };
 
   recognition.onend = () => {
-    // Se ainda tiver texto pendente ao parar, adiciona
     clearTimeout(pauseTimer);
     if (interim.trim()) { processarFala(interim.trim()); interim = ''; }
     if (isRec) {
-      // Reinicia automaticamente no Android (continuous às vezes cai)
+      ultimoIndex = 0; // reseta ao reiniciar
       try { recognition.start(); } catch {}
     } else {
       stopRecUI();
@@ -362,7 +367,7 @@ function setupSpeech() {
   };
 
   recognition.onerror = e => {
-    if (e.error === 'no-speech') return; // ignora silêncio
+    if (e.error === 'no-speech') return;
     stopRec();
   };
 }
@@ -371,7 +376,7 @@ function toggleRec() { isRec ? stopRec() : startRec(); }
 
 function startRec() {
   if (!recognition) return;
-  interim=''; isRec=true;
+  interim=''; isRec=true; ultimoIndex=0;
   clearTimeout(pauseTimer);
   try { recognition.start(); } catch {}
   document.getElementById('micBtn').classList.add('recording');
