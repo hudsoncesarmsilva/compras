@@ -296,7 +296,23 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-/* voz */
+/* ---- voz ---- */
+// Função que processa o texto recebido:
+// separa por vírgula OU adiciona sozinho após pausa
+let pauseTimer = null;
+const PAUSA_MS = 1800; // tempo de silêncio para adicionar automaticamente
+
+function processarFala(texto) {
+  // Se tiver vírgula, separa em múltiplos itens
+  if (texto.includes(',')) {
+    const partes = texto.split(',').map(p => p.trim()).filter(Boolean);
+    partes.forEach(p => addItem(p));
+    document.getElementById('liveText').textContent = '✓ ' + partes.length + ' itens adicionados!';
+  } else {
+    addItem(texto);
+  }
+}
+
 function setupSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -307,17 +323,48 @@ function setupSpeech() {
   }
   recognition = new SR();
   recognition.lang = 'pt-BR';
-  recognition.continuous = false;
+  recognition.continuous = true;   // fica ouvindo continuamente
   recognition.interimResults = true;
+
   recognition.onresult = ev => {
     let fin='', intr='';
     for (let i=ev.resultIndex; i<ev.results.length; i++)
       ev.results[i].isFinal ? fin+=ev.results[i][0].transcript : intr+=ev.results[i][0].transcript;
-    document.getElementById('liveText').textContent = (fin||intr).trim();
-    if (fin.trim()) interim = fin.trim();
+
+    // Mostra o que está sendo reconhecido
+    document.getElementById('liveText').textContent = (fin || intr).trim();
+
+    if (fin.trim()) {
+      interim += (interim ? ' ' : '') + fin.trim();
+
+      // Reinicia o timer de pausa a cada palavra final recebida
+      clearTimeout(pauseTimer);
+      pauseTimer = setTimeout(() => {
+        if (interim.trim()) {
+          processarFala(interim.trim());
+          interim = '';
+          document.getElementById('liveText').textContent = '';
+        }
+      }, PAUSA_MS);
+    }
   };
-  recognition.onend = () => { if (interim){addItem(interim);interim='';} stopRec(); };
-  recognition.onerror = e => { if(e.error!=='no-speech') stopRec(); };
+
+  recognition.onend = () => {
+    // Se ainda tiver texto pendente ao parar, adiciona
+    clearTimeout(pauseTimer);
+    if (interim.trim()) { processarFala(interim.trim()); interim = ''; }
+    if (isRec) {
+      // Reinicia automaticamente no Android (continuous às vezes cai)
+      try { recognition.start(); } catch {}
+    } else {
+      stopRecUI();
+    }
+  };
+
+  recognition.onerror = e => {
+    if (e.error === 'no-speech') return; // ignora silêncio
+    stopRec();
+  };
 }
 
 function toggleRec() { isRec ? stopRec() : startRec(); }
@@ -325,6 +372,7 @@ function toggleRec() { isRec ? stopRec() : startRec(); }
 function startRec() {
   if (!recognition) return;
   interim=''; isRec=true;
+  clearTimeout(pauseTimer);
   try { recognition.start(); } catch {}
   document.getElementById('micBtn').classList.add('recording');
   document.getElementById('icoMic').style.display='none';
@@ -332,19 +380,25 @@ function startRec() {
   document.getElementById('micStatus').textContent='● Ouvindo...';
   document.getElementById('micStatus').className='mic-status on';
   document.getElementById('liveText').textContent='';
-  document.getElementById('micHint').textContent='🎙️ Fale o nome do item e aguarde...';
+  document.getElementById('micHint').textContent='🎙️ Fale um item, pause. Ou: "leite, arroz, feijão"';
 }
 
 function stopRec() {
   isRec=false;
+  clearTimeout(pauseTimer);
+  if (interim.trim()) { processarFala(interim.trim()); interim=''; }
   try { recognition.stop(); } catch {}
+  stopRecUI();
+}
+
+function stopRecUI() {
   document.getElementById('micBtn').classList.remove('recording');
   document.getElementById('icoMic').style.display='block';
   document.getElementById('icoStop').style.display='none';
-  document.getElementById('micStatus').textContent='Toque para falar o item';
+  document.getElementById('micStatus').textContent='Toque para falar';
   document.getElementById('micStatus').className='mic-status';
-  document.getElementById('liveText').textContent='ex: "leite", "arroz", "detergente"';
-  document.getElementById('micHint').textContent='💡 Fale um item de cada vez. Ele será adicionado automaticamente.';
+  document.getElementById('liveText').textContent='ex: "leite" ou "leite, arroz, feijão"';
+  document.getElementById('micHint').textContent='💡 Pause entre itens ou separe por vírgula para adicionar vários.';
 }
 
 setupSpeech();
